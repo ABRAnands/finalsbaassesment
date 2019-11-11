@@ -1,0 +1,48 @@
+pipeline {
+
+
+	agent any
+	
+	triggers {
+        pollSCM('H 15 * * *')
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '5', artifactNumToKeepStr: '5'))
+    }
+   stages { 
+   stage('Checkout from SCM GIT') {
+   steps{
+     checkout([$class: 'GitSCM', branches: [[name: '*/master']], 
+              doGenerateSubmoduleConfigurations: false, extensions: [], 
+              submoduleCfg: [], 
+              userRemoteConfigs: [[url: 'https://github.com/ABRAnands/fullstackfse.git']]])
+     echo 'Git checkout succeeded'
+	 }
+   }
+   
+   stage('Build Docker Image') {
+   steps{
+     script {		 
+		 
+		 sh 'docker build -f "$WORKSPACE/projectmanager/Dockerfile" --network cogdb_sql_net -t registry/project-manager-io:"$BUILD_NUMBER" "$WORKSPACE/projectmanager/"'
+		 sh 'docker build -f "$WORKSPACE/projectmanagerspa/Dockerfile" --network cogdb_sql_net -t registry/project-manager-spa:"$BUILD_NUMBER" "$WORKSPACE/projectmanagerspa/"'         
+        } 	  
+     
+	  }
+   }
+    
+   stage('Run Docker container') {
+   	
+	steps{
+		
+      	
+      	sh 'docker ps -a --filter "exited=9" | awk "{print $1}" | grep -v CONTAINER | xargs docker container rm project-manager-boot'
+      	sh 'docker ps -a --filter "exited=9" | awk "{print $1}" | grep -v CONTAINER | xargs docker container rm project-manager-spa'
+   	       
+      	sh 'docker run -p 9090:9090 --name project-manager-boot --network cogdb_sql_net --link cogdb_sql:mysql -d registry/project-manager-io:"$BUILD_NUMBER"'
+      	sh 'docker run -p 8081:8081 --name project-manager-spa --network cogdb_sql_net--link project-manager-boot -d registry/project-manager-spa:"$BUILD_NUMBER"'
+	  }
+   }
+}
+}
